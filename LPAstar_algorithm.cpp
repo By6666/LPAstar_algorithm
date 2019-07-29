@@ -15,7 +15,7 @@ LPAstar::LPAstar(int16_t row_arg, int16_t column_arg, Points statr_arg,
   //初始化赋值
   current_start_ = start_pos_;  //赋值当前起点为最初的起点
 
-  current_obstacle_list_ = map_obstacle_list_;
+  // current_obstacle_list_ = map_obstacle_list_;
 
   search_nums_count_ = 0;            //搜索次数初始化
   all_expand_points_count_ = 0;      //扩展点个数计数初始化
@@ -63,27 +63,6 @@ std::vector<Points> LPAstar::GetNeighborsPoint(const Points& current_pos) {
   return neighbors;
 }
 
-/* 在一次A*算法中获得当前点的四个临近点的信息
- * 输入：当前点的坐标
- * 输出：四个临近点的信息
- * */
-std::vector<CellInfo> LPAstar::GetNeighborsInfo(const Points& current_pos) {
-  std::vector<CellInfo> neighbors;
-  std::vector<Points> neighbors_pos = GetNeighborsPoint(current_pos);
-
-  for (int8_t i = 0; i < neighbors_pos.size(); ++i) {
-    //如果临近点已经扩展过，则赋值其之前的数据
-    if (consistent_cell_info_list_.find(neighbors_pos[i]) !=
-        consistent_cell_info_list_.end()) {
-      neighbors.push_back(consistent_cell_info_list_[neighbors_pos[i]]);
-    } else {  //若没被扩展过，赋为初始值
-      neighbors.push_back(
-          {neighbors_pos[i], INF_f::max(), INF_f::max(), INF_f::max()});
-    }
-  }
-  return neighbors;
-}
-
 /* 更新点的信息,g、rhs、f等
  * 输入：需要更新的点的坐标
  * 输出：无
@@ -94,20 +73,30 @@ void LPAstar::UpdateVertex(const Points& pos) {
 
   //去除openlist中与pos相同的点
   for (int16_t i = 0; i < open_list_.size(); ++i) {
-    if (pos == open_list_[i].xoy) Remove<CellInfo>(i, &open_list_);
+    if (pos == open_list_[i].xoy) {
+      Remove<CellInfo>(i, &open_list_);
+      current_save_path_hash_.erase(pos);
+    }
   }
 
   //寻找临近点中最小的g_value
-  std::vector<CellInfo> neighbors = GetNeighborsInfo(pos);
+  std::vector<Points> neighbors = GetNeighborsPoint(pos);
   float min_g = INF_f::max();
   int16_t min_index = 0;
   int8_t flg_have_neighbors = 0;
   //找到最小的g，在neighbors中
   for (int8_t i = 0; i < neighbors.size(); ++i) {
-    min_g = std::min(min_g, neighbors[i].g_value);
-    if (min_g == neighbors[i].g_value) min_index = i;
+    float temp = 0.0f;
+    temp = (consistent_cell_info_list_.find(neighbors[i]) !=
+            consistent_cell_info_list_.end())
+               ? consistent_cell_info_list_[neighbors[i]].g_value
+               : INF_f::max();
+
+    min_g = std::min(min_g, temp);
+    if (min_g == temp) min_index = i;
     ++flg_have_neighbors;
   }
+  if (!flg_have_neighbors) current_save_path_hash_.erase(pos);
 
   //找到了终点
   if (pos == goal_pos_) {
@@ -123,30 +112,22 @@ void LPAstar::UpdateVertex(const Points& pos) {
   //如果该点已经被扩展过
   if (consistent_cell_info_list_.find(pos) !=
       consistent_cell_info_list_.end()) {
-    //如果该店已经扩展过，其rhs却又变为了INF，说明该点周围发生了变化，应该把该点放入openlist中，让其重新去扩展
-    if (min_g == INF_f::max()) {
-      current_save_path_hash_.erase(pos);
-      consistent_cell_info_list_[pos].rhs_value = min_g;
-      // 非常关键的操作
+    consistent_cell_info_list_[pos].rhs_value =
+        (min_g == INF_f::max()) ? min_g : min_g + 1;
+
+    if (consistent_cell_info_list_[pos].rhs_value !=
+        consistent_cell_info_list_[pos].g_value) {
       open_list_.push_back(consistent_cell_info_list_[pos]);
-      consistent_cell_info_list_.erase(pos);
-    } else {
-      consistent_cell_info_list_[pos].rhs_value = min_g + 1;
-      if (consistent_cell_info_list_[pos].rhs_value !=
-          consistent_cell_info_list_[pos].g_value) {
-        open_list_.push_back(consistent_cell_info_list_[pos]);
-        consistent_cell_info_list_.erase(pos);
-      }
-      if (flg_have_neighbors)
-        current_save_path_hash_[pos] = neighbors[min_index].xoy;
     }
+    if (flg_have_neighbors) current_save_path_hash_[pos] = neighbors[min_index];
+
   } else {
     //若点没有扩展过，将按照初始化的方式将其push进入openlist
     if (min_g != INF_f::max()) {
       open_list_.push_back(
           CellInfo({pos, DistenceToGoal(pos), INF_f::max(), min_g + 1}));
       if (flg_have_neighbors)
-        current_save_path_hash_[pos] = neighbors[min_index].xoy;
+        current_save_path_hash_[pos] = neighbors[min_index];
     }
   }
 }
@@ -218,7 +199,6 @@ bool LPAstar::AstarAlgorithm() {
       }
       //如果重置了一个cell，那么将它从存储列表中去除
       consistent_cell_info_list_.erase(current_cell.xoy);
-
       UpdateVertex(current_cell.xoy);
       std::vector<Points> neighbors_pos = GetNeighborsPoint(current_cell.xoy);
       for (int8_t i = 0; i < neighbors_pos.size(); ++i) {
@@ -235,14 +215,14 @@ bool LPAstar::AstarAlgorithm() {
   current_path_.clear();
   //*****搜索结果判断*****//
   if (search_successful_flg) {
-    std::cout << "search fail !!" << std::endl;
+    std::cout << std::endl << "search fail !!" << std::endl;
     //打印结果
     PrintSearchResult();
     return false;
   }
   // there is one shortest path to goal
   else {
-    std::cout << "search successfully !!" << std::endl;
+    std::cout << std::endl << "search successfully !!" << std::endl;
 
     Points node = goal.xoy;
 

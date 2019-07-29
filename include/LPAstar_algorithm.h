@@ -54,9 +54,6 @@ class LPAstar {
   //得到临近点的坐标点
   std::vector<Points> GetNeighborsPoint(const Points& current_pos);
 
-  //得到临近点的坐标点中蕴含的信息
-  std::vector<CellInfo> GetNeighborsInfo(const Points& current_pos);
-
   //打印一次搜索结果
   void PrintSearchResult();
 
